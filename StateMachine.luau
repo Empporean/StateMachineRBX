@@ -3,6 +3,8 @@
 
 -- hidden devs
 
+-- Simple FSM (i hope simple) with features: wildcard, history (useful for tracking logic errors)
+
 local t = require(script.t)
 
 local StateMachine = {}
@@ -356,6 +358,7 @@ function StateMachine:getContext(): Context
 	return self._context
 end
 
+-- ignore guards
 function StateMachine:forceState(state: StateName, payload: Payload?, runHooks: boolean?)
 	guardDestroyed(self, "forceState")
 	check(nonEmptyStr, state, "forceState: nede state")
