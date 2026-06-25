@@ -1,5 +1,4 @@
--- 1111alesai113
--- teve_ee (dsc)
+-- roblox user: 1111alesai113 / discord: teve_ee
 
 -- hidden devs
 
