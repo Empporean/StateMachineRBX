@@ -1,7 +1,7 @@
 -- 1111alesai113
 -- teve_ee (dsc)
 
-- hidden devs
+-- hidden devs
 
 local t = require(script.t)
 
