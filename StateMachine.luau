@@ -1,4 +1,4 @@
--- [[
+--[[
 	HiddenDevs:
 	Discord: teve_ee
 	Roblox user: 1111alesai113
