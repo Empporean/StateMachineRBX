@@ -4,6 +4,8 @@
 
 -- Simple FSM (i hope simple) with features: wildcard, history (useful for tracking logic errors)
 
+-- V1
+
 local t = require(script.t)
 
 local StateMachine = {}
