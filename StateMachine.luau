@@ -1,10 +1,13 @@
--- roblox user: 1111alesai113 / discord: teve_ee
-
--- hidden devs
-
--- Simple FSM (i hope simple) with features: wildcard, history (useful for tracking logic errors)
-
--- V1
+--[[
+	V1.1
+	
+	Improved code readabillity + fixed stupid mistakes in checkers
+	Fixed forcestate bug
+	getHistory now read only
+	added debug mode
+	
+	--TODO head/tail for queue
+]]
 
 local t = require(script.t)
 
@@ -138,18 +141,27 @@ function StateMachine.new(initialState: StateName, context: Context?, options: O
 	self._processing = false
 	self._beforeTransition = nil
 	self._afterTransition = nil
+	self._debugMode = options and options.debugMode or false
+	self._prefix = script.Name
+	
+	if self._debugMode then
+		print(`[{self._prefix}]: created new machine, initial state: {self._initialState}, context: {self._context}`)
+	end
 
 	return self
 end
 
-function StateMachine:addState(name: StateName, def: State?)
+function StateMachine:addState(name: StateName, definition: State?)
 	guardDestroyed(self, "addState")
 	guardStarted(self, "addState")
 	check(nonEmptyStr, name, "addState: need name")
-	check(checkState, def, "addState: invalid definition")
+	check(checkState, definition, "addState: invalid definition")
 	noState(self, name, "addState")
 
-	self._states[name] = def or {}
+	self._states[name] = definition or {}
+	if self._debugMode then
+		print(`[{self._prefix}]: added state {name}, definition: {definition}`)
+	end
 	return self
 end
 
@@ -171,60 +183,91 @@ function StateMachine:addTransition(cfg: Transition)
 	end
 
 	table.insert(self._transitions[cfg.from][cfg.event], cfg)
+	if self._debugMode then
+		print(`[{self._prefix}]: added transition from {cfg.from} on {cfg.event} to {cfg.to}`)
+	end
 	return self
 end
 
 function StateMachine:setBeforeTransition(cb: TransitionCallback?)
 	self._beforeTransition = cb
+	if self._debugMode then
+		print(`[{self._prefix}]: set beforeTransition callback`)
+	end
 	return self
 end
 
 function StateMachine:setAfterTransition(cb: TransitionCallback?)
 	self._afterTransition = cb
+	if self._debugMode then
+		print(`[{self._prefix}]: set afterTransition callback`)
+	end
 	return self
 end
 
 function StateMachine:start(payload: Payload?)
 	guardDestroyed(self, "start")
 	guardStarted(self, "start")
-	check(checkPayload, payload, "start: payload must be talbe or nil")
+	check(checkPayload, payload, "start: payload must be table or nil")
 	needState(self, self._initialState, "start")
 
 	self._started = true
 	self._currentState = self._initialState
 
-	local s = self._states[self._initialState]
-	if s and s.onEnter then
-		s.onEnter(self, payload, nil, self._initialState, nil)
+	local state = self._states[self._initialState]
+	if state and state.onEnter then
+		state.onEnter(self, payload, nil, self._initialState, nil)
+		if self._debugMode then
+			print(`[{self._prefix}]: called onEnter for initial state {self._initialState}`)
+		end
+	end
+	
+	if self._debugMode then
+		print(`[{self._prefix}]: started, initial state: {self._initialState}`)
 	end
 
 	return self
 end
 
 function StateMachine:_findTransition(event: EventName, payload: Payload?)
-	local cur = self._currentState
-	if not cur then return nil end
+	local currentState = self._currentState
+	if not currentState then return nil end
 
 	local function tryList(list)
 		if not list then return nil end
-		for _, tr in ipairs(list) do
-			if tr.guard == nil or tr.guard(self, payload) then
-				return tr
+		for _, transition in ipairs(list) do
+			if transition.guard == nil or transition.guard(self, payload) then
+				if self._debugMode then
+					print(`[{self._prefix}]: found transition from {currentState} on {event} to {transition.to}`)
+				end
+				return transition
 			end
 		end
 		return nil
 	end
 
-	local byState = self._transitions[cur]
+	local byState = self._transitions[currentState]
 	if byState then
 		local found = tryList(byState[event])
-		if found then return found end
+		if found then
+			if self._debugMode then
+				print(`[{self._prefix}]: found transition from {currentState} on {event} to {found.to}`)
+			end
+			
+			return found 
+		end
 	end
 
 	local wildcard = self._transitions["*"]
 	if wildcard then
 		local found = tryList(wildcard[event])
-		if found then return found end
+		if found then 
+			if self._debugMode then
+				print(`[{self._prefix}]: found transition from {currentState} on {event} to {found.to} using wildcard`)
+			end
+			
+			return found 
+		end
 	end
 
 	return nil
@@ -267,20 +310,20 @@ function StateMachine:dispatch(event: EventName, payload: Payload?): (boolean, s
 
 	self._processing = true
 
-	local tr = self:_findTransition(event, payload)
-	if not tr then
+	local transition = self:_findTransition(event, payload)
+	if not transition then
 		self._processing = false
 		self:_drainQueue()
 		return false, "NoTransition"
 	end
 
 	local from = self._currentState
-	local to = tr.to
+	local to = transition.to
 	local selfLoop = from == to
-	local runHooks = not selfLoop or tr.reenter == true
+	local runHooks = not selfLoop or transition.reenter == true
 
 	if self._beforeTransition then
-		self._beforeTransition(self, tr, from, to, event, payload)
+		self._beforeTransition(self, transition, from, to, event, payload)
 	end
 
 	if runHooks then
@@ -290,8 +333,8 @@ function StateMachine:dispatch(event: EventName, payload: Payload?): (boolean, s
 		end
 	end
 
-	if tr.action then
-		tr.action(self, payload)
+	if transition.action then
+		transition.action(self, payload)
 	end
 
 	self._currentState = to
@@ -303,10 +346,10 @@ function StateMachine:dispatch(event: EventName, payload: Payload?): (boolean, s
 		end
 	end
 
-	self:_pushHistory(from, to, event, tr.name)
+	self:_pushHistory(from, to, event, transition.name)
 
 	if self._afterTransition then
-		self._afterTransition(self, tr, from, to, event, payload)
+		self._afterTransition(self, transition, from, to, event, payload)
 	end
 
 	self._processing = false
@@ -352,7 +395,7 @@ function StateMachine:getAvailableEvents(): { EventName }
 end
 
 function StateMachine:getHistory(): { HistoryRecord }
-	return self._history
+	return table.clone(self._history)
 end
 
 function StateMachine:getContext(): Context
@@ -360,32 +403,33 @@ function StateMachine:getContext(): Context
 end
 
 -- ignore guards
-function StateMachine:forceState(state: StateName, payload: Payload?, runHooks: boolean?)
+function StateMachine:forceState(targetState: StateName, payload: Payload?, runHooks: boolean?)
 	guardDestroyed(self, "forceState")
-	check(nonEmptyStr, state, "forceState: nede state")
-	needState(self, state, "forceState")
+	check(nonEmptyStr, targetState, "forceState: need state")
+	needState(self, targetState, "forceState")
 
 	local from = self._currentState
+	local to = targetState
 	local hooks = runHooks == true
 
 	if hooks and from then
-		local d = self._states[from]
-		if d and d.onExit then
-			d.onExit(self, payload, from, state, nil)
+		local state = self._states[from]
+		if state and state.onExit then
+			state.onExit(self, payload, from, to, nil)
 		end
 	end
 
-	self._currentState = state
+	self._currentState = to
 
 	if hooks then
-		local d = self._states[state]
-		if d and d.onEnter then
-			d.onEnter(self, payload, from, state, nil)
+		local state = self._states[to]
+		if state and state.onEnter then
+			state.onEnter(self, payload, from, to, nil)
 		end
 	end
 
 	if from then
-		self:_pushHistory(from, state, "force", nil)
+		self:_pushHistory(from, to, "force", nil)
 	end
 
 	return self
